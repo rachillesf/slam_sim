@@ -1,13 +1,11 @@
-#TODO:
-# make automatic update, without key press
-# 
-
 
 import matplotlib.pyplot as plt
 from math import *
 import numpy as np
 import random
 import time
+from map import *
+from ekf import *
 plt.ion()
 
 
@@ -23,14 +21,16 @@ class Robot:
     def __init__(self,init_state,map):
         self.map = map
         self.USE_NOISE = True
-        self.state = [0.0,0.0,0.0]
+        self.state = [0.0,0.0,0.0] #state is the REAL place occupy by the robot
         self.states_list = [init_state] #store all visited states
-        self.sensor_opening = 3*pi/4
         self.sensor_maxrange = 3
+        self.sensor_opening = 3*pi/2.0
         self.landmarks = []  #current visible landmarks
         self.landmarks_list = [] #store all landmarks observed
-        self.measure_noise = [0.05,0.04]
+        self.measure_noise = 0.02
         self.control_noise = [0.1,-0.2,0]
+        self.odometry = [0.0,0.0,0.0]
+        self.odometry_list = []
 
 
     # set_state:
@@ -50,7 +50,6 @@ class Robot:
 
         v = control[0] + self.control_noise[0]*control[2] + rand[0]
         w = control[1] + self.control_noise[1]*control[2] + rand[1]
-        print v,w,control[2]
         return [v,w,control[2]]
 
     # move
@@ -89,18 +88,21 @@ class Robot:
     #apply_measurement_noise
     #   apply a sistematic and a random noise given in self.measure_noise
     #   return: ladmark with noise
-    def apply_measurement_noise(self, landmark):
-        dx = landmark[0] - self.state[0]
-        dy = landmark[1] - self.state[1]
+    def apply_measurement_noise(self, landmark_coord):
+        dx = landmark_coord[0] - self.state[0]
+        dy = landmark_coord[1] - self.state[1]
 
         alpha = (atan2(dy, dx) - self.state[2] + pi) % (2*pi) - pi
         r = sqrt(dx * dx + dy * dy)
-        #limits the random noise to 2% of the landmark radius
-        rand = np.random.rand(2)*0.02*r
 
-        lx = landmark[0] + self.measure_noise[0]*r + rand[0]
-        ly = landmark[1] + self.measure_noise[1]*r + rand[1]
-        return [lx,ly]
+        rand = np.random.rand(3)
+        rand[0]*= 0.01*r
+        rand[1]*= 0.01*r
+
+        r = sqrt(dx * dx + dy * dy) + self.measure_noise*r*rand[2] - rand[0]*r
+        alpha = alpha + rand[1]*r
+
+        return [r,alpha]
 
     #is_landmark_visible
     #   check if a landmarks is visible to the sensor given the min/max angle
@@ -110,13 +112,12 @@ class Robot:
         dx = landmark[0] - self.state[0]
         dy = landmark[1] - self.state[1]
 
-        max_alpha = self.state[2] + self.sensor_opening
-        min_alpha = self.state[2] - self.sensor_opening
         alpha = (atan2(dy, dx) - self.state[2] + pi) % (2*pi) - pi
-
         r = sqrt(dx * dx + dy * dy)
+        min_b = -3*pi/4.0
+        max_b = 3*pi/4.0
 
-        if alpha >= min_alpha and alpha <= max_alpha and r < self.sensor_maxrange:
+        if alpha >= min_b and alpha <= max_b and r < 3:
             return True
         else: return False
 
@@ -128,14 +129,15 @@ class Robot:
         landmarks = []
         for landmark in global_landmark_list:
             if(self.is_landmark_visible(landmark)):
-                dx = landmark[0] - self.state[0]
-                dy = landmark[1] - self.state[1]
-                r = sqrt(dx * dx + dy * dy)
-                alpha = (atan2(dy, dx)) % (2*pi) - pi
                 landmarks.append(self.apply_measurement_noise(landmark))
-
         self.landmarks = landmarks
         self.landmarks_list.append(landmarks)
+
+    # kalman_predict
+    #   perform a state prediction using odometry info and control
+    def kalman_predict(self,control):
+        self.odometry =  ExtendedKalmanFilter.g(self.odometry, control)
+        self.odometry_list.append(self.odometry)
 
 
     #__repr__
@@ -143,71 +145,3 @@ class Robot:
     def __repr__(self):
         return '[x=%s y=%s theta=%s]' % (str(self.state[0]), str(self.state[1]),
                                                 str(self.state[2]))
-
-
-class Map:
-    def __init__(self):
-        self.size = 6 #assuming square map
-        self.global_landmark_list = [[1.0,1.0],
-                                     [2.0,2.0],
-                                     [3.0,3.0],
-                                     [4.0,4.0],
-                                     [5.0,5.0]]
-        self.IDEAL = False
-
-    #move_in_list
-    #   execute a list of control instructions in order
-    def move_in_list(self,robot,control_list):
-        for control in control_list:
-            for time_step in range(5):
-                dt = control[2]/5
-                robot.move([control[0],control[1],dt])
-                self.show_map(robot)
-                plt.show()
-                raw_input()
-                plt.clf()
-
-    def plot_global_landmarks(self):
-        #plot all landmarks
-        for ldm in self.global_landmark_list:
-            plt.plot(ldm[0], ldm[1],'bo')
-        plt.axis([-1,self.size, -1,self.size])
-
-    def plot_robot_path(self,robot):
-        #plot all robot states as lines
-        for state in robot.states_list:
-            x = state[0]
-            y = state[1]
-            theta = state[2]
-            x1 = x + (0.1 * cos(theta))
-            y1 = y + (0.1 * sin(theta))
-            plt.plot([x,x1],[y,y1],color='b')
-        #show robot final pose as a circle
-        plt.gca().add_patch(plt.Circle((x,y),radius=0.1,fc='b'))
-
-    def plot_observed_landmarks(self,robot):
-        #plot all observed landmarks
-        for obs_landmark in robot.landmarks:
-            plt.plot(obs_landmark[0],obs_landmark[1],'go')
-        plt.axis([-1,self.size, -1,self.size])
-
-    def show_map(self,robot):
-        self.plot_global_landmarks()
-        self.plot_robot_path(robot)
-        self.plot_observed_landmarks(robot)
-
-
-
-
-
-if __name__ == "__main__":
-
-    map = Map()
-    control_list = [[0.0,0.0,1.0],
-                    [1.0,0.0,1.0],
-                    [1.0,pi/2,1.0],
-                    [1.0,0.0,1.0],
-                    [1.0,-pi/2,1.0]]
-
-    robot = Robot([0.0,0.0,0.0],map)
-    map.move_in_list(robot,control_list)
