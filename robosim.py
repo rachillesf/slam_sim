@@ -1,11 +1,14 @@
+#TODO:
+# make automatic update, without key press
+# 
+
+
+import matplotlib.pyplot as plt
+from math import *
 import numpy as np
 import random
-from math import *
-import matplotlib.pyplot as plt
-
-#TODO:
-# add noise to  measurement
-
+import time
+plt.ion()
 
 
 class Robot:
@@ -18,6 +21,7 @@ class Robot:
     # init:
     #    creates robot and initializes location/orientation
     def __init__(self,init_state,map):
+        self.map = map
         self.USE_NOISE = True
         self.state = [0.0,0.0,0.0]
         self.states_list = [init_state] #store all visited states
@@ -25,7 +29,8 @@ class Robot:
         self.sensor_maxrange = 3
         self.landmarks = []  #current visible landmarks
         self.landmarks_list = [] #store all landmarks observed
-        self.map = map
+        self.measure_noise = [0.05,0.04]
+        self.control_noise = [0.1,-0.2,0]
 
 
     # set_state:
@@ -34,6 +39,19 @@ class Robot:
         #set state
         self.state = state
 
+    #apply_control_noise
+    #   apply a sistematic and a random noise given in self.control_noise
+    #   return: control with noise
+    def apply_control_noise(self, control):
+
+        rand = np.random.rand(2)
+        rand[0]*= 0.03*control[0]
+        rand[1]*= 0.03*control[1]
+
+        v = control[0] + self.control_noise[0]*control[2] + rand[0]
+        w = control[1] + self.control_noise[1]*control[2] + rand[1]
+        print v,w,control[2]
+        return [v,w,control[2]]
 
     # move
     #       execute a control instructios in the form of (v,w,dt)
@@ -41,43 +59,48 @@ class Robot:
 
         #member variable of control with error
         if(self.USE_NOISE):
-            v = control[0]  + 10e-3 + 0.042*control[0] + 0.065*control[1]
-            w = control[1]  + 10e-3 + 0.06*control[0] + 0.032*control[1]
+            [v,w,dt] = self.apply_control_noise(control)
         else:
-            v = control[0]  + 10e-3
-            w = control[1]  + 10e-3
+            [v,w,dt] = control
 
-        delta_t = control[2]
-        for time_step in range(5):
-            dt = delta_t/5.0
+        #member variables for state
+        x = self.state[0]
+        y = self.state[1]
+        theta = self.state[2]
 
-            #member variables for state
-            x = self.state[0]
-            y = self.state[1]
-            theta = self.state[2]
-
-            #state update equations
+        if w == 0:
+            new_x = x + cos(theta) * dt
+            new_y = y + sin(theta) * dt
+            new_theta = theta
+        else:
             new_x = x - (v/w)*sin(theta) + (v/w) * sin(theta + (w*dt))
             new_y = y + (v/w)*cos(theta) - (v/w) * cos(theta + (w*dt))
             new_theta = (theta + w*dt) % (2*pi)
 
-            #update state and append it to states list
-            self.state =[float("{0:.4f}".format(new_x)),
-                        float("{0:.4f}".format(new_y)),
-                        float("{0:.4f}".format(new_theta))]
+        #update state and append it to states list
+        self.state =[float("{0:.4f}".format(new_x)),
+                    float("{0:.4f}".format(new_y)),
+                    float("{0:.4f}".format(new_theta))]
 
-            self.states_list.append(self.state)
+        self.states_list.append(self.state)
 
         self.search_landmarks(self.map.global_landmark_list)
 
+    #apply_measurement_noise
+    #   apply a sistematic and a random noise given in self.measure_noise
+    #   return: ladmark with noise
+    def apply_measurement_noise(self, landmark):
+        dx = landmark[0] - self.state[0]
+        dy = landmark[1] - self.state[1]
 
+        alpha = (atan2(dy, dx) - self.state[2] + pi) % (2*pi) - pi
+        r = sqrt(dx * dx + dy * dy)
+        #limits the random noise to 2% of the landmark radius
+        rand = np.random.rand(2)*0.02*r
 
-    #move_in_list
-    #   execute a list of control instructions in order
-    def move_in_list(self,control_list):
-        for control in control_list:
-            self.move(control)
-
+        lx = landmark[0] + self.measure_noise[0]*r + rand[0]
+        ly = landmark[1] + self.measure_noise[1]*r + rand[1]
+        return [lx,ly]
 
     #is_landmark_visible
     #   check if a landmarks is visible to the sensor given the min/max angle
@@ -97,11 +120,11 @@ class Robot:
             return True
         else: return False
 
+
     #search_landmarks
     #   given the coordinates of all the landmarks in the system, updates the
     #   self.landmark_list with the visible ones
     def search_landmarks(self,global_landmark_list):
-
         landmarks = []
         for landmark in global_landmark_list:
             if(self.is_landmark_visible(landmark)):
@@ -109,14 +132,10 @@ class Robot:
                 dy = landmark[1] - self.state[1]
                 r = sqrt(dx * dx + dy * dy)
                 alpha = (atan2(dy, dx)) % (2*pi) - pi
-                landmark[0] += 0.2*r
-                landmark[1] += 0.2*r
-                landmarks.append(landmark)
+                landmarks.append(self.apply_measurement_noise(landmark))
 
         self.landmarks = landmarks
         self.landmarks_list.append(landmarks)
-        print "visible_landmarks"
-        print self.landmarks
 
 
     #__repr__
@@ -129,50 +148,54 @@ class Robot:
 class Map:
     def __init__(self):
         self.size = 6 #assuming square map
-        self.global_landmark_list = [[1.0,2.0],
-                                     [3.0,3.5],
-                                     [4.0,5.0],
-                                     [5.5,3.0]]
+        self.global_landmark_list = [[1.0,1.0],
+                                     [2.0,2.0],
+                                     [3.0,3.0],
+                                     [4.0,4.0],
+                                     [5.0,5.0]]
         self.IDEAL = False
 
-    def show_map(self,robot):
+    #move_in_list
+    #   execute a list of control instructions in order
+    def move_in_list(self,robot,control_list):
+        for control in control_list:
+            for time_step in range(5):
+                dt = control[2]/5
+                robot.move([control[0],control[1],dt])
+                self.show_map(robot)
+                plt.show()
+                raw_input()
+                plt.clf()
 
-        #if is plotting the ideal robot only show the states
-        if self.IDEAL:
-            #plot all robot states as lines
-            for state in robot.states_list:
-                x = state[0]
-                y = state[1]
-                theta = state[2]
-                x1 = x + (0.1 * cos(theta))
-                y1 = y + (0.1 * sin(theta))
-                plt.plot([x,x1],[y,y1],color='r')
-            #show robot final pose as a circle
-            plt.gca().add_patch(plt.Circle((x,y),radius=0.1,fc='r'))
-
-
-        else:
-            #plot all robot states as lines
-            for state in robot.states_list:
-                x = state[0]
-                y = state[1]
-                theta = state[2]
-                x1 = x + (0.1 * cos(theta))
-                y1 = y + (0.1 * sin(theta))
-                plt.plot([x,x1],[y,y1],color='b')
-            #show robot final pose as a circle
-            plt.gca().add_patch(plt.Circle((x,y),radius=0.1,fc='b'))
-
-            #plot all landmarks
-            for landmark in self.global_landmark_list:
-                plt.plot(landmark[0],landmark[1],'ro')
-
-            #plot all observed landmarks
-            for obs_landmark in robot.landmarks_list[-1]:
-                plt.plot(obs_landmark[0],obs_landmark[1],'go')
-
-
+    def plot_global_landmarks(self):
+        #plot all landmarks
+        for ldm in self.global_landmark_list:
+            plt.plot(ldm[0], ldm[1],'bo')
         plt.axis([-1,self.size, -1,self.size])
+
+    def plot_robot_path(self,robot):
+        #plot all robot states as lines
+        for state in robot.states_list:
+            x = state[0]
+            y = state[1]
+            theta = state[2]
+            x1 = x + (0.1 * cos(theta))
+            y1 = y + (0.1 * sin(theta))
+            plt.plot([x,x1],[y,y1],color='b')
+        #show robot final pose as a circle
+        plt.gca().add_patch(plt.Circle((x,y),radius=0.1,fc='b'))
+
+    def plot_observed_landmarks(self,robot):
+        #plot all observed landmarks
+        for obs_landmark in robot.landmarks:
+            plt.plot(obs_landmark[0],obs_landmark[1],'go')
+        plt.axis([-1,self.size, -1,self.size])
+
+    def show_map(self,robot):
+        self.plot_global_landmarks()
+        self.plot_robot_path(robot)
+        self.plot_observed_landmarks(robot)
+
 
 
 
@@ -187,14 +210,4 @@ if __name__ == "__main__":
                     [1.0,-pi/2,1.0]]
 
     robot = Robot([0.0,0.0,0.0],map)
-    robot.move_in_list(control_list)
-    map.show_map(robot)
-
-    map2 = Map()
-    map2.IDEAL = True
-    robot2 = Robot([0.0,0.0,0.0],map)
-    robot2.USE_NOISE = False
-    robot2.move_in_list(control_list)
-    map2.show_map(robot2)
-
-    plt.show()
+    map.move_in_list(robot,control_list)
