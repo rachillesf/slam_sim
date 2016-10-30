@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib import patches
 from math import *
 import numpy as np
 import random
@@ -48,7 +49,7 @@ class Map:
             x1 = x + (0.1 * cos(theta))
             y1 = y + (0.1 * sin(theta))
             plt.plot([x,x1],[y,y1],color='b')
-        #show robot final pose as a circle
+
         plt.gca().add_patch(plt.Circle((x,y),radius=0.1,fc='b'))
         x = state[0]
         y = state[1]
@@ -70,6 +71,15 @@ class Map:
 
             plt.plot(x1,y1,'go')
         plt.axis([-1,self.size, -1,self.size])
+    def draw_elipse(self, robot):
+        #get the error elipse for kalman filters
+        [theta,val2,val1] = robot.ekf.get_error_ellipse(robot.ekf.covariance)
+
+        pose = robot.odometry
+        theta = (theta + pose[2])*180/pi
+        #show robot final pose as a circle
+        plt.gca().add_patch(patches.Ellipse((pose[0], pose[1]), val1, val2,
+                                angle=theta, linewidth=1, fill=False, zorder=2))
 
     def plot_odometry(self,robot):
         #plot all robot states as lines
@@ -79,6 +89,7 @@ class Map:
             y1 = pose[1] + (0.1 * sin(theta))
             plt.plot([pose[0],x1],[pose[1],y1],color='b')
 
+        self.draw_elipse(robot)
         #show robot final pose as a circle
         plt.gca().add_patch(plt.Circle((pose[0],pose[1]),radius=0.1,fc='r'))
 

@@ -31,7 +31,7 @@ class Robot:
         self.control_noise = [0.1,-0.2,0]
         self.odometry = [0.0,0.0,0.0]
         self.odometry_list = []
-
+        self.ekf = ExtendedKalmanFilter(self.state)
 
     # set_state:
     #       set the robot to a desired state
@@ -136,7 +136,8 @@ class Robot:
     # kalman_predict
     #   perform a state prediction using odometry info and control
     def kalman_predict(self,control):
-        self.odometry =  ExtendedKalmanFilter.g(self.odometry, control)
+        self.ekf.predict(control)
+        self.odometry = self.ekf.state
         self.odometry_list.append(self.odometry)
 
 
