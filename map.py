@@ -26,7 +26,6 @@ class Map:
                 plt.clf()
                 dt = control[2]/5
                 robot.move([control[0],control[1],dt])
-                robot.kalman_predict([control[0],control[1],dt])
                 self.show_map(robot)
                 plt.show()
                 plt.pause(0.01)

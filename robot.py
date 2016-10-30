@@ -19,15 +19,16 @@ class Robot:
     # init:
     #    creates robot and initializes location/orientation
     def __init__(self,init_state,map):
-        self.map = map
         self.USE_NOISE = True
+        self.USE_KALMAN = True
+        self.map = map
         self.state = [0.0,0.0,0.0] #state is the REAL place occupy by the robot
         self.states_list = [init_state] #store all visited states
-        self.sensor_maxrange = 3
-        self.sensor_opening = 3*pi/2.0
+        self.sensor_maxrange = 20.0
+        self.sensor_opening =  3*pi/2.0
         self.landmarks = []  #current visible landmarks
         self.landmarks_list = [] #store all landmarks observed
-        self.measure_noise = 0.02
+        self.measure_noise = 0.01
         self.control_noise = [0.1,-0.2,0]
         self.odometry = [0.0,0.0,0.0]
         self.odometry_list = []
@@ -48,8 +49,8 @@ class Robot:
         rand[0]*= 0.03*control[0]
         rand[1]*= 0.03*control[1]
 
-        v = control[0] + self.control_noise[0]*control[2] + rand[0]
-        w = control[1] + self.control_noise[1]*control[2] + rand[1]
+        v = control[0] + self.control_noise[0]*control[0] + rand[0]
+        w = control[1] + self.control_noise[1]*control[1] + rand[1]
         return [v,w,control[2]]
 
     # move
@@ -85,6 +86,26 @@ class Robot:
 
         self.search_landmarks(self.map.global_landmark_list)
 
+        self.update_odometry([control[0],control[1],dt])
+
+
+    #update_odometry
+    #   updates current guess of robot pose given control command
+    def update_odometry(self,control):
+        if self.USE_KALMAN:
+            self.ekf.predict(control)
+            measurement = self.landmarks
+            map_ld = self.map.global_landmark_list
+            for j in xrange(len(measurement)):
+                self.ekf.correct(measurement[j],map_ld[j])
+            self.odometry = self.ekf.state
+            self.odometry_list.append(self.odometry)
+        else:
+            self.ekf.predict(control)
+            self.odometry = self.ekf.state
+            self.odometry_list.append(self.odometry)
+
+
     #apply_measurement_noise
     #   apply a sistematic and a random noise given in self.measure_noise
     #   return: ladmark with noise
@@ -95,14 +116,9 @@ class Robot:
         alpha = (atan2(dy, dx) - self.state[2] + pi) % (2*pi) - pi
         r = sqrt(dx * dx + dy * dy)
 
-        rand = np.random.rand(3)
-        rand[0]*= 0.01*r
-        rand[1]*= 0.01*r
-
-        r = sqrt(dx * dx + dy * dy) + self.measure_noise*r*rand[2] - rand[0]*r
-        alpha = alpha + rand[1]*r
 
         return [r,alpha]
+
 
     #is_landmark_visible
     #   check if a landmarks is visible to the sensor given the min/max angle
@@ -116,6 +132,7 @@ class Robot:
         r = sqrt(dx * dx + dy * dy)
         min_b = -3*pi/4.0
         max_b = 3*pi/4.0
+        return True
 
         if alpha >= min_b and alpha <= max_b and r < 3:
             return True
@@ -133,12 +150,7 @@ class Robot:
         self.landmarks = landmarks
         self.landmarks_list.append(landmarks)
 
-    # kalman_predict
-    #   perform a state prediction using odometry info and control
-    def kalman_predict(self,control):
-        self.ekf.predict(control)
-        self.odometry = self.ekf.state
-        self.odometry_list.append(self.odometry)
+
 
 
     #__repr__
