@@ -1,8 +1,3 @@
-# This adds the derivative of g, this time with respect to the control
-# (left and right motor movement).
-#
-# slam_07_c_control_derivative
-# Claus Brenner, 11.12.2012
 
 from math import sin, cos, pi
 from numpy import *

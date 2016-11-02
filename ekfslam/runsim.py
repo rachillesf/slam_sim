@@ -5,13 +5,15 @@ import random
 import time
 from robot import *
 from map import *
-from ekf import *
+
 plt.ion()
 
 
 if __name__ == '__main__':
 
     control_list = [[0.0,0.0,1.0],
+                    [0.0,0.0,1.0],
+                [0.0,0.0,1.0],
                 [1.0,0.0,1.0],
                 [1.0,pi/9,1.0],
                 [1.0,pi/9,1.0],
@@ -30,5 +32,5 @@ if __name__ == '__main__':
 
     map = Map()
     robot = Robot([0.0,0.0,0.0],map)
-
+    #robot.ekf.add_landmark_to_state((1.0, 3.0))
     map.move_in_list(robot,control_list)

@@ -5,12 +5,12 @@ import numpy as np
 import random
 import time
 from robot import *
-from ekf import *
+from ekfslam import *
 plt.ion()
 
 class Map:
     def __init__(self):
-        self.size = 6 #assuming square map
+        self.size = 8 #assuming rectangular map
         self.global_landmark_list = [[1.0,1.0],
                                      [2.0,2.0],
                                      [3.0,3.0],
@@ -57,24 +57,21 @@ class Map:
         y1 = y + (0.1 * sin(theta))
         plt.plot([x,x1],[y,y1],color='r')
 
-    def plot_observed_landmarks(self,robot):
-        #plot all observed landmarks
-        for obs_landmark in robot.landmarks:
-            x = robot.state[0]
-            y = robot.state[1]
-            theta = robot.state[2]
-            [r,alpha] = obs_landmark
+    def plot_ekfstate_landmarks(self,robot):
+        lm = robot.ekf.get_landmarks()
+        ellipses = robot.ekf.get_landmark_error_ellipses()
 
-            x1 = x + (r * cos(theta+alpha))
-            y1 = y + (r * sin(theta+alpha))
+        for landmark in lm:
+            plt.plot(landmark[0], landmark[1],'go')
 
-            plt.plot(x1,y1,'go')
+        for i in range(len(lm)):
+            self.draw_elipse([lm[i][0],lm[i][1],0],ellipses[i])
         plt.axis([-1,self.size, -1,self.size])
-    def draw_elipse(self, robot):
-        #get the error elipse for kalman filters
-        [theta,val2,val1] = robot.ekf.get_error_ellipse(robot.ekf.covariance)
 
-        pose = robot.odometry
+    def draw_elipse(self, pose, elipse):
+
+        [theta,val2,val1] = elipse
+
         theta = (theta + pose[2])*180/pi
         #show robot final pose as a circle
         plt.gca().add_patch(patches.Ellipse((pose[0], pose[1]), val1, val2,
@@ -88,12 +85,13 @@ class Map:
             y1 = pose[1] + (0.1 * sin(theta))
             plt.plot([pose[0],x1],[pose[1],y1],color='b')
 
-        self.draw_elipse(robot)
+        robot_elipse = robot.ekf.get_error_ellipse(robot.ekf.covariance)
+        self.draw_elipse(robot.odometry,robot_elipse)
         #show robot final pose as a circle
         plt.gca().add_patch(plt.Circle((pose[0],pose[1]),radius=0.1,fc='r'))
 
     def show_map(self,robot):
         self.plot_global_landmarks()
         self.plot_robot_path(robot)
-        self.plot_observed_landmarks(robot)
+        self.plot_ekfstate_landmarks(robot)
         self.plot_odometry(robot)
